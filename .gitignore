@@ -15,3 +15,5 @@ config.json
 .venv/
 venv/
 tmp/
+venv-capcut/
+dfd_*/

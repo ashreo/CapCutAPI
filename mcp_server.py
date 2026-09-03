@@ -13,6 +13,16 @@ import io
 import contextlib
 from typing import Any, Dict, List, Optional
 
+# This server emits Chinese text and emoji on both stdout (JSON-RPC responses)
+# and stderr (logs). On Windows those streams default to cp1252, so any
+# non-ASCII byte raises UnicodeEncodeError: the response is never written, the
+# client sees an empty reply, and the session is effectively dead. Force UTF-8.
+for _stream in ("stdin", "stdout", "stderr"):
+    try:
+        getattr(sys, _stream).reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,7 +39,11 @@ try:
     from add_video_keyframe_impl import add_video_keyframe_impl
     from get_duration_impl import get_video_duration
     from save_draft_impl import save_draft_impl
-    from pyJianYingDraft.text_segment import TextStyleRange
+    try:
+        from pyJianYingDraft.text_segment import TextStyleRange
+    except ImportError:
+        # Not present in this fork's vendored pyJianYingDraft; optional feature.
+        TextStyleRange = None
     CAPCUT_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import CapCut modules: {e}", file=sys.stderr)
@@ -271,7 +285,14 @@ def convert_text_styles(text_styles_data):
     """将字典格式的text_styles转换为TextStyleRange对象列表"""
     if not text_styles_data:
         return None
-    
+
+    if TextStyleRange is None:
+        raise NotImplementedError(
+            "text_styles (multi-style text ranges) is not supported by the "
+            "pyJianYingDraft bundled with this fork. Use a single global style "
+            "per add_text call, or split the text into separate add_text calls."
+        )
+
     try:
         text_style_ranges = []
         for style_dict in text_styles_data:
