@@ -65,7 +65,11 @@ def add_effect_impl(
         script.add_track(draft.Track_type.effect)
 
     # Add effect
-    script.add_effect(effect_enum, t_range, params=params[::-1], track_name=track_name)
+    # `params` is optional and defaults to None, so it must not be sliced
+    # unconditionally: params[::-1] raised TypeError for every call that did
+    # not pass explicit effect parameters, i.e. the common case.
+    script.add_effect(effect_enum, t_range, params=params[::-1] if params else None,
+                      track_name=track_name)
 
     return {
         "draft_id": draft_id,
