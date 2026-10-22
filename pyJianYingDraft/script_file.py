@@ -498,6 +498,11 @@ class Script_file:
         if style_reference is None and clip_settings is None:
             raise ValueError("未提供样式参考时请提供`clip_settings`参数")
 
+        # Must be bound before the closures below reference it: `font` is
+        # optional, and when it is omitted font_type was never assigned, so
+        # every import_srt call without an explicit font raised
+        # "cannot access free variable 'font_type'".
+        font_type = None
         if font:
             try:
                 font_type = getattr(Font_type, font)

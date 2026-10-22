@@ -38,20 +38,33 @@ def add_effect_impl(
     duration = end - start
     t_range = trange(f"{start}s", f"{duration}s")
 
-    # Dynamically get effect type object
+    # Dynamically get effect type object.
+    # Enum["missing"] raises KeyError rather than returning None, so the old
+    # `if effect_enum is None` fallback was dead code: every character effect
+    # (Face_Glitch, Beauty, ...) failed with a bare KeyError instead of being
+    # looked up in the second enum. Try each enum in turn instead.
     if IS_CAPCUT_ENV:
         # If in CapCut environment, use CapCut effects
-        effect_enum = CapCut_Video_scene_effect_type[effect_type]
-        if effect_enum is None:
-            effect_enum = CapCut_Video_character_effect_type[effect_type]
+        scene_enum, character_enum = (CapCut_Video_scene_effect_type,
+                                      CapCut_Video_character_effect_type)
     else:
         # Default to using JianYing effects
-        effect_enum = Video_scene_effect_type[effect_type]
-        if effect_enum is None:
-            effect_enum = Video_character_effect_type[effect_type]
-    
+        scene_enum, character_enum = (Video_scene_effect_type,
+                                      Video_character_effect_type)
+
+    effect_enum = None
+    for candidate in (scene_enum, character_enum):
+        try:
+            effect_enum = candidate[effect_type]
+            break
+        except KeyError:
+            continue
+
     if effect_enum is None:
-        raise ValueError(f"Unknown effect type: {effect_type}")
+        raise ValueError(
+            f"Unknown effect type: {effect_type}. Expected a member name of "
+            f"{scene_enum.__name__} or {character_enum.__name__}."
+        )
 
     # Add effect track (only when track doesn't exist)
     if track_name is not None:
@@ -65,7 +78,11 @@ def add_effect_impl(
         script.add_track(draft.Track_type.effect)
 
     # Add effect
-    script.add_effect(effect_enum, t_range, params=params[::-1], track_name=track_name)
+    # `params` is optional and defaults to None, so it must not be sliced
+    # unconditionally: params[::-1] raised TypeError for every call that did
+    # not pass explicit effect parameters, i.e. the common case.
+    script.add_effect(effect_enum, t_range, params=params[::-1] if params else None,
+                      track_name=track_name)
 
     return {
         "draft_id": draft_id,

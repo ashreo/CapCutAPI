@@ -1,3 +1,5 @@
+import inspect
+
 import pyJianYingDraft as draft
 from settings.local import IS_CAPCUT_ENV
 from util import generate_draft_url, hex_to_rgb
@@ -5,7 +7,15 @@ from pyJianYingDraft import trange, Font_type
 from typing import Optional, List  # 修复List导入
 from pyJianYingDraft import exceptions
 from create_draft import get_or_create_draft
-from pyJianYingDraft.text_segment import TextBubble, TextEffect, TextStyleRange
+from pyJianYingDraft.text_segment import TextBubble, TextEffect
+try:
+    from pyJianYingDraft.text_segment import TextStyleRange
+except ImportError:
+    # The vendored pyJianYingDraft in this fork predates multi-style text ranges
+    # (no TextStyleRange, no Text_segment.add_text_style). Keep the import
+    # non-fatal so the rest of the toolset still loads; text_styles is rejected
+    # explicitly below.
+    TextStyleRange = None
 
 # 使用Python 3.10+的新特性：Union类型可以用 | 替代
 # from typing import Union
@@ -58,7 +68,7 @@ def add_text_impl(
     fixed_width: float = -1,
     fixed_height: float = -1,
     # Multi-style text parameters
-    text_styles: List[TextStyleRange] | None = None,  # 使用新语法
+    text_styles: List | None = None,  # 使用新语法
 ):
     """
     Add text subtitle to the specified draft (configurable parameter version)
@@ -169,7 +179,15 @@ def add_text_impl(
         )
     
     # 创建text_shadow (阴影)
+    # The vendored pyJianYingDraft has no Text_shadow class and Text_segment
+    # does not accept a `shadow` kwarg, so this feature is unavailable here.
     text_shadow = None
+    if shadow_enabled and not hasattr(draft, "Text_shadow"):
+        raise NotImplementedError(
+            "shadow_enabled is not supported by the pyJianYingDraft bundled "
+            "with this fork (no Text_shadow class). Use border_enabled or "
+            "background_color for contrast instead."
+        )
     if shadow_enabled:
         text_shadow = draft.Text_shadow(
             has_shadow=shadow_enabled,
@@ -204,9 +222,7 @@ def add_text_impl(
         pixel_fixed_height = int(fixed_height * script.height)
     
     # Create text segment (using configurable parameters)
-    text_segment = draft.Text_segment(
-        text,
-        trange(f"{start}s", f"{end-start}s"),
+    text_segment_kwargs = dict(
         font=font_type,  # Use font from Font_type
         style=draft.Text_style(
             color=rgb_color,
@@ -218,13 +234,29 @@ def add_text_impl(
         clip_settings=draft.Clip_settings(transform_y=transform_y, transform_x=transform_x),
         border=text_border,
         background=text_background,
-        shadow=text_shadow,
         fixed_width=pixel_fixed_width,
         fixed_height=pixel_fixed_height
+    )
+    # Only forward `shadow` when the bundled Text_segment actually accepts it;
+    # passing an unexpected kwarg raises even when the value is None.
+    if "shadow" in inspect.signature(draft.Text_segment.__init__).parameters:
+        text_segment_kwargs["shadow"] = text_shadow
+
+    text_segment = draft.Text_segment(
+        text,
+        trange(f"{start}s", f"{end-start}s"),
+        **text_segment_kwargs
     )
 
     # 应用多样式文本设置
     if text_styles:
+        if TextStyleRange is None or not hasattr(text_segment, "add_text_style"):
+            raise NotImplementedError(
+                "text_styles (multi-style text ranges) is not supported by the "
+                "pyJianYingDraft bundled with this fork. Use a single global "
+                "style per add_text call, or split the text into separate "
+                "add_text segments."
+            )
         for style_range in text_styles:
             # 验证范围有效性
             if style_range.start < 0 or style_range.end > len(text) or style_range.start >= style_range.end:
